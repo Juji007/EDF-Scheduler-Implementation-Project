@@ -1,6 +1,6 @@
 /*
- * FreeRTOS V202112.00
- * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * FreeRTOS Kernel V10.2.0
+ * Copyright (C) 2019 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -54,98 +54,334 @@
 
 /* Standard includes. */
 #include <stdlib.h>
-
+#include <stdio.h>
+#include <string.h>
 /* Scheduler includes. */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "lpc21xx.h"
+#include "semphr.h"
 
-/* Demo application includes. */
-#include "partest.h"
-#include "flash.h"
-#include "comtest2.h"
+
+
+/* Peripheral includes. */
 #include "serial.h"
-#include "PollQ.h"
-#include "BlockQ.h"
-#include "semtest.h"
-#include "dynamic.h"
+#include "GPIO.h"
+
+
+void wastTime(TickType_t time);
+BaseType_t xTaskPeriodicCreate( TaskFunction_t pxTaskCode,
+                            const char * const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
+                            const configSTACK_DEPTH_TYPE usStackDepth,
+                            void * const pvParameters,
+                            UBaseType_t uxPriority,
+                            TaskHandle_t * const pxCreatedTask,
+														TickType_t period);
 
 /*-----------------------------------------------------------*/
 
 /* Constants to setup I/O and processor. */
-#define mainTX_ENABLE		( ( unsigned long ) 0x00010000 )	/* UART1. */
-#define mainRX_ENABLE		( ( unsigned long ) 0x00040000 ) 	/* UART1. */
 #define mainBUS_CLK_FULL	( ( unsigned char ) 0x01 )
-#define mainLED_TO_OUTPUT	( ( unsigned long ) 0xff0000 )
 
 /* Constants for the ComTest demo application tasks. */
 #define mainCOM_TEST_BAUD_RATE	( ( unsigned long ) 115200 )
-#define mainCOM_TEST_LED		( 3 )
+	
+ 
+//Tasks Handles
+TaskHandle_t Task_1_Handle = NULL;
+TaskHandle_t Task_2_Handle = NULL;
+TaskHandle_t Task_3_Handle = NULL;
+TaskHandle_t Task_4_Handle = NULL;
+TaskHandle_t Task_5_Handle = NULL;
+TaskHandle_t Task_6_Handle = NULL;
 
-/* Priorities for the demo application tasks. */
-#define mainLED_TASK_PRIORITY		( tskIDLE_PRIORITY + 2 )
-#define mainCOM_TEST_PRIORITY		( tskIDLE_PRIORITY + 2 )
-#define mainQUEUE_POLL_PRIORITY		( tskIDLE_PRIORITY + 2 )
-#define mainBLOCK_Q_PRIORITY		( tskIDLE_PRIORITY + 2 )
-#define mainSEM_TEST_PRIORITY		( tskIDLE_PRIORITY + 1 )
-#define mainCHECK_TASK_PRIORITY		( tskIDLE_PRIORITY + 3 )
-
-/* Constants used by the "check" task.  As described at the head of this file
-the check task toggles an LED.  The rate at which the LED flashes is used to
-indicate whether an error has been detected or not.  If the LED toggles every
-3 seconds then no errors have been detected.  If the rate increases to 500ms
-then an error has been detected in at least one of the demo application tasks. */
-#define mainCHECK_LED				( 7 )
-#define mainNO_ERROR_FLASH_PERIOD	( ( TickType_t ) 3000 / portTICK_PERIOD_MS  )
-#define mainERROR_FLASH_PERIOD		( ( TickType_t ) 500 / portTICK_PERIOD_MS  )
-
-/*-----------------------------------------------------------*/
-
-/*
- * Checks that all the demo application tasks are still executing without error
- * - as described at the top of the file.
- */
-static long prvCheckOtherTasksAreStillRunning( void );
-
-/*
- * The task that executes at the highest priority and calls 
- * prvCheckOtherTasksAreStillRunning().  See the description at the top
- * of the file.
- */
-static void vErrorChecks( void *pvParameters );
-
+//Queues Handles
+QueueHandle_t Queue1 = NULL;
+QueueHandle_t Queue2 = NULL;
+QueueHandle_t Queue3 = NULL;
 /*
  * Configure the processor for use with the Keil demo board.  This is very
  * minimal as most of the setup is managed by the settings in the project
  * file.
  */
 static void prvSetupHardware( void );
-
 /*-----------------------------------------------------------*/
+//-------------------------------------------------
+// Tasks Protopies
+//-------------------------------------------------
 
+void Task1 (void *pvParameters); 
+void Task2 (void *pvParameters);
+void Task3 (void *pvParameters);
+void Task4 (void *pvParameters);
+void Task5 (void *pvParameters);
+void Task6 (void *pvParameters);
+//-------------------------------------------------
+// Global Variables
+//-------------------------------------------------
 
+#define Task1_PERIOD 		50
+#define Task2_PERIOD 		50
+#define Task3_PERIOD		100
+#define Task4_PERIOD		20
+#define Task5_PERIOD		10
+#define Task6_PERIOD		100
+
+ int Task1_StartTime=0 ,Task1_FinishTime =0 ,Task1_TotalTime = 0 ,Task1_ExcutionTime ;
+ int Task2_StartTime=0 ,Task2_FinishTime =0 ,Task2_TotalTime = 0 ,Task2_ExcutionTime ;
+ int Task3_StartTime=0 ,Task3_FinishTime =0 ,Task3_TotalTime = 0 ,Task3_ExcutionTime ;
+ int Task4_StartTime=0 ,Task4_FinishTime =0 ,Task4_TotalTime = 0 ,Task4_ExcutionTime ;
+ int Task5_StartTime=0 ,Task5_FinishTime =0 ,Task5_TotalTime = 0 ,Task5_ExcutionTime ;
+ int Task6_StartTime=0 ,Task6_FinishTime =0 ,Task6_TotalTime = 0 ,Task6_ExcutionTime;
+
+int SystemTime = 0;
+float CPU_Load = 0 ;
+
+void Task1 (void *pvParameters)
+	{
+	TickType_t xLastWakeTime;
+	pinState_t prvBtnState = GPIO_read(PORT_1,PIN1);
+	pinState_t curBtnState ;
+	char edgeFlage ;
+		// Set Task Tag for monitoring
+  vTaskSetApplicationTaskTag( NULL, ( void * ) 1 );
+	// Initialise the xLastWakeTime variable with the current time.
+	xLastWakeTime = 0;
+
+	
+	for( ; ; )
+{
+	curBtnState = GPIO_read(PORT_1 , PIN1);
+	
+ if ((curBtnState != prvBtnState )&& (prvBtnState == PIN_IS_LOW)){
+ 
+ edgeFlage = 'P';
+ }else if ((curBtnState != prvBtnState )&& (prvBtnState == PIN_IS_HIGH)){
+ 
+  edgeFlage = 'N';
+ }else
+ {
+ edgeFlage = 'X';
+ }
+ prvBtnState = curBtnState;
+ 
+ xQueueOverwrite(Queue1,&edgeFlage);
+ 
+  vTaskDelayUntil(&xLastWakeTime,Task1_PERIOD);
+
+}
+
+ }
+
+ void Task2 (void *pvParameters)
+	{
+	TickType_t xLastWakeTime;
+	pinState_t prvBtnState = GPIO_read(PORT_1,PIN2);
+	pinState_t curBtnState ;
+	char edgeFlage ;	
+		// Set Task Tag for monitoring
+  vTaskSetApplicationTaskTag( NULL, ( void * ) 2 );
+	// Initialise the xLastWakeTime variable with the current time.
+	xLastWakeTime = 0;
+
+	
+	for( ; ; )
+{
+	
+	curBtnState = GPIO_read(PORT_1 , PIN2);
+ if ((curBtnState != prvBtnState )&& (prvBtnState == PIN_IS_LOW)){
+ 
+ edgeFlage = 'P';
+ }else if ((curBtnState != prvBtnState )&& (prvBtnState == PIN_IS_HIGH)){
+ 
+  edgeFlage = 'N';
+ }else
+ {
+ edgeFlage = 'X';
+ }
+ prvBtnState = curBtnState;
+ 
+ xQueueOverwrite(Queue2,&edgeFlage);
+ 
+ vTaskDelayUntil(&xLastWakeTime,Task2_PERIOD);
+
+}
+
+}
+	
+ void Task3 (void *pvParameters)
+	{
+	TickType_t xLastWakeTime;
+	char Message[10] = "listening";
+	
+		// Set Task Tag for monitoring
+  vTaskSetApplicationTaskTag( NULL, ( void * ) 3 );
+	// Initialise the xLastWakeTime variable with the current time.
+	xLastWakeTime = 0;
+
+	for( ; ; )
+{
+ 
+	xQueueOverwrite(Queue3 , Message );
+	
+ vTaskDelayUntil(&xLastWakeTime,Task3_PERIOD);
+
+}
+
+}
+	
+void Task4 (void *pvParameters)
+	{
+	TickType_t xLastWakeTime;
+	 char Btn1Data , Btn2Data; 
+	 char ReceivedString[7];
+	 char Btn1Message[11] ="BUTTON_1 : ";
+	// Set Task Tag for monitoring
+  vTaskSetApplicationTaskTag( NULL, ( void * ) 4 );
+	// Initialise the xLastWakeTime variable with the current time.
+	xLastWakeTime = 0;
+
+ 
+	for( ; ; )
+{
+	xQueueReceive(Queue1,&Btn1Data,0);
+  xQueueReceive(Queue2,&Btn2Data,0);
+	
+	if(Btn1Data != 'X'&& ((Btn1Data == 'P')||(Btn1Data == 'N'))){
+	xSerialPutChar('\n');
+	xSerialPutChar('B');
+	xSerialPutChar('T');
+	xSerialPutChar('N');
+	xSerialPutChar('1');
+	xSerialPutChar(' ');
+	xSerialPutChar(':');
+	xSerialPutChar(' ');
+	xSerialPutChar(Btn1Data);
+	Btn1Data = 'X';
+	}
+	if(Btn2Data != 'X'&& ((Btn2Data == 'P')||(Btn2Data == 'N'))){
+	xSerialPutChar('\n');
+	xSerialPutChar('B');
+	xSerialPutChar('T');
+	xSerialPutChar('N');
+	xSerialPutChar('2');
+	xSerialPutChar(' ');
+	xSerialPutChar(':');
+	xSerialPutChar(' ');
+	xSerialPutChar(Btn2Data);
+	Btn2Data = 'X';
+	}
+	if(xQueueReceive(Queue3,ReceivedString,5) == pdPASS){
+	xSerialPutChar('\n');
+	vSerialPutString(ReceivedString,10);
+	}
+	
+	
+  vTaskDelayUntil(&xLastWakeTime,Task4_PERIOD);
+
+}
+
+}
+	
+void Task5 (void *pvParameters)
+	{
+	TickType_t xLastWakeTime;
+		// Set Task Tag for monitoring
+  vTaskSetApplicationTaskTag( NULL, ( void * ) 5 );
+	// Initialise the xLastWakeTime variable with the current time.
+	xLastWakeTime = 0;
+
+	for( ; ; )
+{
+	
+	wastTime(5);
+	
+ vTaskDelayUntil(&xLastWakeTime,Task5_PERIOD);
+
+}
+
+}
+void Task6 (void *pvParameters)
+	{
+	TickType_t xLastWakeTime;
+		// Set Task Tag for monitoring
+  vTaskSetApplicationTaskTag( NULL, ( void * ) 6 );
+	// Initialise the xLastWakeTime variable with the current time.
+	xLastWakeTime = 0;
+
+	for( ; ; )
+{
+ 
+	wastTime(12);
+	
+ vTaskDelayUntil(&xLastWakeTime,Task6_PERIOD);
+
+}
+
+}
 
 /*
  * Application entry point:
  * Starts all the other tasks, then starts the scheduler. 
  */
 int main( void )
-{
+ {
 	/* Setup the hardware for use with the Keil demo board. */
 	prvSetupHardware();
+//Queue Creation
+	 Queue1 = xQueueCreate( 1,sizeof(char));
+	 Queue2 = xQueueCreate( 1,sizeof(char));
+	 Queue3 = xQueueCreate( 1,sizeof(char[10]));
+		
+	 
+    /* Create Tasks here */
+ xTaskPeriodicCreate(Task1,
+	"Button1",
+	100,
+	( void * ) 1,
+	1,
+	&Task_1_Handle,
+	Task1_PERIOD );	
+	
+	xTaskPeriodicCreate(Task2,
+	"Button2",
+	100,
+	( void * ) 1,
+	1,
+	&Task_2_Handle,
+	Task2_PERIOD );
 
-	/* Start the demo/test application tasks. */
-	vAltStartComTestTasks( mainCOM_TEST_PRIORITY, mainCOM_TEST_BAUD_RATE, mainCOM_TEST_LED );
-	vStartLEDFlashTasks( mainLED_TASK_PRIORITY );
-	vStartPolledQueueTasks( mainQUEUE_POLL_PRIORITY );
-	vStartBlockingQueueTasks( mainBLOCK_Q_PRIORITY );
-	vStartSemaphoreTasks( mainSEM_TEST_PRIORITY );
-	vStartDynamicPriorityTasks();
-
-	/* Start the check task - which is defined in this file.  This is the task
-	that periodically checks to see that all the other tasks are executing 
-	without error. */
-	xTaskCreate( vErrorChecks, "Check", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, NULL );
-
+	xTaskPeriodicCreate(Task3,
+	"Sender",
+	100,
+	( void * ) 1,
+	1,
+	&Task_3_Handle,
+	Task3_PERIOD );
+	
+	xTaskPeriodicCreate(Task4,
+	"Receiver",
+	100,
+	( void * ) 1,
+	1,
+	&Task_4_Handle,
+	Task4_PERIOD );
+	
+	xTaskPeriodicCreate(Task5,
+	"Load1",
+	100,
+	( void * ) 1,
+	1,
+	&Task_5_Handle,
+	Task5_PERIOD );
+	
+	xTaskPeriodicCreate(Task6,
+	"Load2",
+	100,
+	( void * ) 1,
+	1,
+	&Task_6_Handle,
+	Task6_PERIOD );
 	/* Now all the tasks have been started - start the scheduler.
 
 	NOTE : Tasks run in system mode and the scheduler runs in Supervisor mode.
@@ -154,96 +390,65 @@ int main( void )
 	to supervisor mode prior to main being called.  If you are not using one of
 	these demo application projects then ensure Supervisor mode is used here. */
 	vTaskStartScheduler();
-
+  
 	/* Should never reach here!  If you do then there was not enough heap
 	available for the idle task to be created. */
 	for( ;; );
+			
 }
 /*-----------------------------------------------------------*/
 
-static void vErrorChecks( void *pvParameters )
+
+// Tick Hook Function
+void vApplicationTickHook( void )
 {
-TickType_t xDelayPeriod = mainNO_ERROR_FLASH_PERIOD;
+GPIO_write(PORT_0,PIN0,PIN_IS_HIGH);
+GPIO_write(PORT_0,PIN0,PIN_IS_LOW);
 
-	/* Parameters are not used. */
-	( void ) pvParameters;
-
-	/* Cycle for ever, delaying then checking all the other tasks are still
-	operating without error.  If an error is detected then the delay period
-	is decreased from mainNO_ERROR_FLASH_PERIOD to mainERROR_FLASH_PERIOD so
-	the on board LED flash rate will increase.
-
-	This task runs at the highest priority. */
-
-	for( ;; )
-	{
-		/* The period of the delay depends on whether an error has been 
-		detected or not.  If an error has been detected then the period
-		is reduced to increase the LED flash rate. */
-		vTaskDelay( xDelayPeriod );
-
-		if( prvCheckOtherTasksAreStillRunning() != pdPASS )
-		{
-			/* An error has been detected in one of the tasks - flash faster. */
-			xDelayPeriod = mainERROR_FLASH_PERIOD;
-		}
-
-		/* Toggle the LED before going back to wait for the next cycle. */
-		vParTestToggleLED( mainCHECK_LED );
-	}
 }
-/*-----------------------------------------------------------*/
+
+
+
+/* Function to reset timer 1 */
+void timer1Reset(void)
+{
+	T1TCR |= 0x2;
+	T1TCR &= ~0x2;
+}
+
+/* Function to initialize and start timer 1 */
+static void configTimer1(void)
+{
+	T1PR = 1000;
+	T1TCR |= 0x1;
+}
 
 static void prvSetupHardware( void )
 {
 	/* Perform the hardware setup required.  This is minimal as most of the
 	setup is managed by the settings in the project file. */
 
-	/* Configure the UART1 pins.  All other pins remain at their default of 0. */
-	PINSEL0 |= mainTX_ENABLE;
-	PINSEL0 |= mainRX_ENABLE;
+	/* Configure UART */
+	xSerialPortInitMinimal(mainCOM_TEST_BAUD_RATE);
 
-	/* LED pins need to be output. */
-	IODIR1 = mainLED_TO_OUTPUT;
+	/* Configure GPIO */
+	GPIO_init();
+	
+	/* Config trace timer 1 and read T1TC to get current tick */
+	configTimer1();
 
 	/* Setup the peripheral bus to be the same as the PLL output. */
 	VPBDIV = mainBUS_CLK_FULL;
 }
-/*-----------------------------------------------------------*/
 
-static long prvCheckOtherTasksAreStillRunning( void )
-{
-long lReturn = pdPASS;
-
-	/* Check all the demo tasks (other than the flash tasks) to ensure
-	that they are all still running, and that none of them have detected
-	an error. */
-	if( xAreComTestTasksStillRunning() != pdPASS )
-	{
-		lReturn = pdFAIL;
+void wastTime(TickType_t time){
+	
+	TickType_t wastCounter = 0;
+	TickType_t WastedTicks = 12000* time;
+	while(wastCounter < WastedTicks){
+	
+		wastCounter++;
 	}
-
-	if( xArePollingQueuesStillRunning() != pdTRUE )
-	{
-		lReturn = pdFAIL;
-	}
-
-	if( xAreBlockingQueuesStillRunning() != pdTRUE )
-	{
-		lReturn = pdFAIL;
-	}
-
-	if( xAreSemaphoreTasksStillRunning() != pdTRUE )
-	{
-		lReturn = pdFAIL;
-	}
-
-	if( xAreDynamicPriorityTasksStillRunning() != pdTRUE )
-	{
-		lReturn = pdFAIL;
-	}
-
-	return lReturn;
 }
 /*-----------------------------------------------------------*/
 
